@@ -19,7 +19,6 @@ bl_info = {
     "category": "Import-Export",
 }
 
-
 class ImportGfbanm(bpy.types.Operator, ImportHelper):
     """
     Class for operator that imports GFBANM files.
@@ -96,7 +95,6 @@ class ImportGfbanm(bpy.types.Operator, ImportHelper):
         box.prop(self, "add_euler_rotation_X", text="Additive X Euler Rotation")
         box.prop(self, "add_euler_rotation_Y", text="Additive Y Euler Rotation")
         box.prop(self, "add_euler_rotation_Z", text="Additive Z Euler Rotation")
-        box = self.layout.box()
 
 
 def menu_func_import(operator: bpy.types.Operator, _context: bpy.types.Context):

@@ -149,12 +149,12 @@ def apply_track_transforms_to_posebone(context: bpy.types.Context, pose_bone: bp
         loc_key = rot_key = scale_key = False
         if transform[0] is not None:
             bone_loc = parent_loc + transform[0]
-            loc_key = True
             set_posebone_global_matrix(pose_bone,
                                        Matrix.LocRotScale(bone_loc, bone_rot, bone_scale))
+            loc_key = True
         if transform[1] is not None:
             pose_bone.rotation_euler = transform[1].copy()
-            pose_bone.rotation_quaternion = pose_bone.rotation_euler.to_quaternion()
+            pose_bone.rotation_quaternion = transform[1].to_quaternion()
             axis_angle = pose_bone.rotation_quaternion.to_axis_angle()
             pose_bone.rotation_axis_angle = [axis_angle[0][0], axis_angle[0][1], axis_angle[0][2],
                                              axis_angle[1]]
@@ -318,6 +318,14 @@ def unpack(x: int, y: int, z: int) -> tuple[float, float, float, float]:
     return result
 
 
+def get_quaternion_from_vector(vec: Vec3T | sVec3T | None) -> Quaternion | None:
+    if vec is None:
+        return None
+    # quaternion_tuple = unpack(vec.x, vec.y, vec.z)  # Get (w, x, y, z) tuple
+    quaternion_tuple = packed_to_quat(vec.x, vec.y, vec.z)
+    return Quaternion(quaternion_tuple)
+
+
 def get_euler_from_vector(vec: Vec3T | sVec3T | None, euler_rotation_mode="XYZ") -> Euler | None:
     """
     Converts packed quaternion components into an Euler object.
@@ -325,10 +333,9 @@ def get_euler_from_vector(vec: Vec3T | sVec3T | None, euler_rotation_mode="XYZ")
     :param euler_rotation_mode: Euler rotation mode string.
     :return: Euler object.
     """
-    if vec is None:
+    quaternion = get_quaternion_from_vector(vec)  # Create Blender Quaternion object
+    if quaternion is None:
         return None
-    quaternion_tuple = unpack(vec.x, vec.y, vec.z)  # Get (w, x, y, z) tuple
-    quaternion = Quaternion(quaternion_tuple)  # Create Blender Quaternion object
     euler = quaternion.to_euler(euler_rotation_mode)
     # These modifications helped with some rotations, but some had 90 degrees difference.
     # x = -1.0 * (math.pi + euler.z)
@@ -338,3 +345,40 @@ def get_euler_from_vector(vec: Vec3T | sVec3T | None, euler_rotation_mode="XYZ")
     # euler.y = y
     # euler.z = z
     return euler
+
+
+def unpack_s15(u15: int):
+    sign = (u15 >> 14) & 1
+    u15 &= 0x3FFF
+    if sign == 0:
+        u15 -= 0x4000
+    return u15
+
+
+COUNT = 15
+BASE = (1 << COUNT) - 1
+MAX_VAL = 1.0 / (0x399E * math.sqrt(2.0))
+# Blender uses W, X, Y, Z Quaternion order instead of C#'s X, Y, Z, W, so W is moved left here.
+QUATERNION_SWIZZLES = ((1, 0, 3, 2), (1, 3, 0, 2), (1, 3, 2, 0), (0, 3, 2, 1))
+
+
+def packed_to_quat(z: int, y: int, x: int) -> Quaternion:
+    cq = x & 0xFFFF
+    cq <<= 16
+    cq |= y & 0xFFFF
+    cq <<= 16
+    cq |= z & 0xFFFF
+    extra = cq & 0x7
+    num = cq >> 3
+    x = unpack_s15(num >> (COUNT * 2) & BASE)
+    y = unpack_s15(num >> (COUNT * 1) & BASE)
+    z = unpack_s15(num >> (COUNT * 0) & BASE)
+    fx = x * MAX_VAL
+    fy = y * MAX_VAL
+    fz = z * MAX_VAL
+    quat_tuple = (math.sqrt(1.0 - fx * fx - fy * fy - fz * fz), fx, fy, fz)
+    quat_map = QUATERNION_SWIZZLES[extra & 3]
+    quat = Quaternion([quat_tuple[i] for i in quat_map])
+    if extra >> 2 != 0:
+        quat *= -1
+    return quat
